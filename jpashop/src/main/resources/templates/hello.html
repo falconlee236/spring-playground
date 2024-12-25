@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<!--xml의 namespace를 th이고, thymeleaf로 선언.-->
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+  <meta http-equiv="Content-Type" content="text/html" charset="UTF-8">
+  <title>Hello</title>
+</head>
+<body>
+<!--CSR을 하면 오른쪽에 일반 텍스트가 나오며, SSR을 하면 왼쪽의 text가 나온다.-->
+<p th:text="'안녕하세요. ' + ${data}">안녕하세요, 손님</p>
+</body>
+</html>
