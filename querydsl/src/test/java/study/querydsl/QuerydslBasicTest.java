@@ -1,5 +1,6 @@
 package study.querydsl;
 
+import com.querydsl.core.QueryResults;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -149,5 +150,38 @@ public class QuerydslBasicTest {
         assertThat(memberNull.getUsername()).isNull();
     }
 
+    // 페이징 예제
+    // 조회 건수 제한
+    @Test
+    public void paging1() {
+        List<Member> result = queryFactory
+                .selectFrom(member)
+                .orderBy(member.username.desc())
+                .offset(1) // querydsl 은 0부터 시작 (zero index)
+                .limit(2) // 최대 2건 조회
+                .fetch();
 
+        assertThat(result.size()).isEqualTo(2);
+    }
+
+    // 전체 조회수가 필요하면?
+    @Test
+    public void paging2() {
+        QueryResults<Member> queryResults = queryFactory
+                .selectFrom(member)
+                .orderBy(member.username.desc())
+                .offset(1)
+                .limit(2)
+                .fetchResults();
+
+        System.out.println("result");
+        System.out.println(queryResults);
+        assertThat(queryResults.getTotal()).isEqualTo(4); // 전체 데이터 수
+        assertThat(queryResults.getLimit()).isEqualTo(2);
+        assertThat(queryResults.getOffset()).isEqualTo(1);
+        assertThat(queryResults.getResults().size()).isEqualTo(2);
+
+        // 이 경우는 count query 가 자동으로 실행되니까 성능상 주의
+        // 보통 count 는 join 이 필요없는 경우가 많기 때문에 따로 쿼리를 작성하는 것이 효과적
+    }
 }
