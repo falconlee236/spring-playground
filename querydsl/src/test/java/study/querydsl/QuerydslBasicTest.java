@@ -4,13 +4,16 @@ import com.querydsl.core.QueryResults;
 import com.querydsl.core.Tuple;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.PersistenceContext;
+import jakarta.persistence.PersistenceUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
 import study.querydsl.entity.Member;
 import study.querydsl.entity.QMember;
+import study.querydsl.entity.QTeam;
 import study.querydsl.entity.Team;
 import java.util.List;
 
@@ -24,6 +27,9 @@ public class QuerydslBasicTest {
 
     @PersistenceContext
     private EntityManager em;
+
+    @PersistenceUnit
+    EntityManagerFactory emf;
 
     // 동시성 문제와 관련해서는 스프링에서 각 스레드마다 서로 다른 persist context 를 제공하기 때문에 상관 없음
     private JPAQueryFactory queryFactory;
@@ -225,5 +231,122 @@ public class QuerydslBasicTest {
 
         assertThat(teamB.get(team.name)).isEqualTo("teamB");
         assertThat(teamB.get(member.age.avg())).isEqualTo(35);
+    }
+
+    // Join
+    // basic join
+    // 첫번째 파라미터에 join 대상을 지정하고 두번째 파라미터에 alias 로 사용할 Q 타입을 지정
+    @Test
+    public void join() {
+        QMember member = QMember.member;
+        QTeam team = QTeam.team;
+
+        List<Member> result = queryFactory
+                .selectFrom(member)
+                .join(member.team, team) // inner join
+                .where(team.name.eq("teamA"))
+                .fetch();
+        assertThat(result)
+                .extracting("username")
+                .containsExactly("member1", "member2");
+    }
+
+    // theta join (카르테시안 곱)
+    @Test
+    public void theta_join() {
+        em.persist(new Member("teamA"));
+        em.persist(new Member("teamB"));
+
+        // 연관관계가 없는 필드로 join -> 회원의 이름이 팀 이름과 같은 회원 조회
+        List<Member> result = queryFactory
+                .select(member)
+                .from(member, team) // from 절에 여러 엔티티를 선택해서 외부 조인
+                .where(member.username.eq(team.name))
+                .fetch();
+
+        assertThat(result)
+                .extracting("username")
+                .containsExactly("teamA", "teamB");
+
+        // outer join 은 불가능하지만 join on 을 사용하면 외부 조인이 가능하다
+    }
+
+    // Join on statement
+    // 1. join 대상 필터링
+    // 회원과 팀을 조인하면서 팀 이름이 teamA 인 팀만 조인, 회원은 모두 조회
+    /**
+     * 예) 회원과 팀을 조인하면서, 팀 이름이 teamA인 팀만 조인, 회원은 모두 조회
+     * JPQL: SELECT m, t FROM Member m LEFT JOIN m.team t on t.name = 'teamA'
+     * SQL: SELECT m.*, t.* FROM Member m LEFT JOIN Team t ON m.TEAM_ID=t.id and
+     t.name='teamA'
+     */
+    @Test
+    public void join_on_filtering() {
+        List<Tuple> result = queryFactory
+                .select(member, team)
+                .from(member)
+                .leftJoin(member.team, team).on(team.name.eq("teamA"))
+                .fetch();
+        // 이 경우는 그냥 join 하고 where 절에 조건을 추가한거랑 동일 즉 내부 조인이면 where 로 쓰는게 좋음
+        // outer join 이 필요할 때만 on 을 사용
+        for (Tuple tuple : result) {
+            System.out.println("tuple = " + tuple);
+        }
+    }
+
+    /**
+     * 2. 연관관계 없는 엔티티 외부 조인
+     * 예) 회원의 이름과 팀의 이름이 같은 대상 외부 조인
+     * JPQL: SELECT m, t FROM Member m LEFT JOIN Team t on m.username = t.name
+     * SQL: SELECT m.*, t.* FROM Member m LEFT JOIN Team t ON m.username = t.name
+     */
+    @Test
+    public void join_on_no_relation() {
+        em.persist(new Member("teamA"));
+        em.persist(new Member("teamB"));
+
+        List<Tuple> result = queryFactory
+                .select(member, team)
+                .from(member)
+                .leftJoin(team).on(member.username.eq(team.name)) // 여기 부분이 다르다! 일반 join 과 다르게 엔티티 하나만 들어감
+                .fetch();
+        //  이러면 pk 대상으로 join 하는 것이 사라짐
+
+        for (Tuple tuple : result) {
+            System.out.println("tuple = " + tuple);
+        }
+    }
+
+    // join - fetch join
+    // 주로 성능 최적화에 사용, SQL 조인을 사용해서 관련 엔티티를 SQL 한번에 조회하는 기능
+    // fetch join 미적용 -> 지연 로딩으로 Member, team sql 각각 실행
+    @Test
+    public void fetchJoinNo() {
+        em.flush();
+        em.clear();
+
+        Member findMember = queryFactory
+                .selectFrom(member)
+                .where(member.username.eq("member1"))
+                .fetchOne();
+
+        boolean loaded = emf.getPersistenceUnitUtil().isLoaded(findMember.getTeam());
+        assertThat(loaded).as("패치 조인 미적용").isFalse();
+    }
+
+    // 패치 조인 적용
+    // 즉시 로딩으로 Member, Team SQL 쿼리 조인으로 한번에 조회
+    @Test
+    public void fetchJoinUse() {
+        em.flush();
+        em.clear();
+
+        Member findMember = queryFactory
+                .selectFrom(member)
+                .join(member.team, team).fetchJoin() // 조인 기능 뒤에 fetchJoin 이라고 추가하면된다.
+                .where(member.username.eq("member1"))
+                .fetchOne();
+        boolean loaded = emf.getPersistenceUnitUtil().isLoaded(findMember.getTeam());
+        assertThat(loaded).as("패치 조인 적용").isTrue();
     }
 }
