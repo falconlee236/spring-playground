@@ -2,6 +2,10 @@ package study.querydsl;
 
 import com.querydsl.core.QueryResults;
 import com.querydsl.core.Tuple;
+import com.querydsl.core.types.dsl.CaseBuilder;
+import com.querydsl.core.types.dsl.Expressions;
+import com.querydsl.core.types.dsl.NumberExpression;
+import com.querydsl.jpa.JPAExpressions;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
@@ -348,5 +352,117 @@ public class QuerydslBasicTest {
                 .fetchOne();
         boolean loaded = emf.getPersistenceUnitUtil().isLoaded(findMember.getTeam());
         assertThat(loaded).as("패치 조인 적용").isTrue();
+    }
+
+    // sub query
+    // com.querydsl.jap.JPAExpressions 사용
+    // sub query eq 사용
+    @Test
+    public void subQuery(){
+        // 나이가 가장 많은 회원 조회
+        QMember memberSub = new QMember("memberSub");
+
+        List<Member> result = queryFactory
+                .selectFrom(member)
+                .where(member.age.eq(
+                        JPAExpressions
+                                .select(memberSub.age.max())
+                                .from(memberSub)
+                ))
+                .fetch();
+
+        assertThat(result).extracting("age").containsExactly(40 );
+    }
+
+    // subquery goe 사용
+    @Test
+    public void subQueryGoe() {
+        QMember memberSub = new QMember("memberSub");
+        // 나이가 평균 나이 이상인 회원 조회
+        List<Member> result = queryFactory
+                .selectFrom(member)
+                .where(member.age.goe(
+                        JPAExpressions
+                                .select(memberSub.age.avg())
+                                .from(memberSub)
+                ))
+                .fetch();
+
+        assertThat(result).extracting("age").containsExactly(30, 40 );
+    }
+
+    /**
+     * 서브쿼리 여러 건 처리, in 사용
+     */
+    @Test
+    public void subQueryIn() throws Exception {
+        QMember memberSub = new QMember("memberSub");
+        List<Member> result = queryFactory
+                .selectFrom(member)
+                .where(member.age.in(
+                        JPAExpressions
+                                .select(memberSub.age)
+                                .from(memberSub)
+                                .where(memberSub.age.gt(10))
+                ))
+                .fetch();
+        assertThat(result).extracting("age")
+                .containsExactly(20, 30, 40);
+
+        // select 절에 subQuery
+        List<Tuple> fetch = queryFactory
+                .select(member.username,
+                        JPAExpressions
+                                .select(memberSub.age.avg())
+                                .from(memberSub)
+                ).from(member)
+                .fetch();
+        for (Tuple tuple : fetch) {
+            System.out.println("username = " + tuple.get(member.username));
+            System.out.println("age = " +
+                    tuple.get(JPAExpressions.select(memberSub.age.avg())
+                            .from(memberSub)));
+        }
+
+        // 참고로 JPA, 하이버네이트를 상요하면 select, where 의 서브쿼리는 지원하지만 from 절의 서브쿼리는 지원안함
+
+        /*
+        orderBy 에서 Case 문 함께 사용하기 예제
+        예를 들어서 다음과 같은 임의의 순서로 회원을 출력하고 싶다면?
+            1. 0 ~ 30살이 아닌 회원을 가장 먼저 출력
+            2. 0 ~ 20살 회원 출력
+            3. 21 ~ 30살 회원 출력
+         */
+        NumberExpression<Integer> rankPath = new CaseBuilder()
+                .when(member.age.between(0, 20)).then(2)
+                .when(member.age.between(21, 30)).then(1)
+                .otherwise(3);
+        List<Tuple> res = queryFactory
+                .select(member.username, member.age, rankPath)
+                .from(member)
+                .orderBy(rankPath.desc())
+                .fetch();
+        for (Tuple tuple : res) {
+            String username = tuple.get(member.username);
+            Integer age = tuple.get(member.age);
+            Integer rank = tuple.get(rankPath);
+            System.out.println("username = " + username + " age = " + age + " rank = " +
+                    rank);
+        }
+
+        // 상수 문자 예시
+        Tuple rt = queryFactory
+                .select(member.username, Expressions.constant("A"))
+                .from(member)
+                .fetchFirst();
+
+        // 문자 더하기 concat
+        String rs = queryFactory
+                .select(member.username.concat("_").concat(member.age.stringValue()))
+                .from(member)
+                .where(member.username.eq("member1"))
+                .fetchOne();
+        // 결과: member1_10
+        // 문자가 아닌 다른 타입은 stringValue() 로  문자로 변환 가능
     }
 }
