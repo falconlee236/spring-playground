@@ -125,4 +125,29 @@ public class QuerydslBasicTest {
         // where 에 파라미터로 검색 조건을 추가하면 자동으로 AND 조건이 추가
         // 이 경우 null 값은 무시 -> 메서드 추출을 통해서 동적 쿼리를 깔끔하게 만들 수 있다. -> 뒤에서 설명
     }
+
+    // 정렬 예제
+    @Test
+    public void sort() {
+        em.persist(new Member(null, 100));
+        em.persist(new Member("member5", 100));
+        em.persist(new Member("member6", 100));
+
+        List<Member> result = queryFactory
+                .selectFrom(member)
+                .where(member.age.eq(100))
+                .orderBy(member.age.desc(), member.username.asc().nullsLast())
+                .fetch();
+        // 나이 기준으로 내림차순, 이름 기준으로 오름차순 + null 값은 맨 마지막에 출력 -> nullsLast
+        // nullsLast, nullsFirst -> null 데이터 순서 부여
+
+        Member member5 = result.get(0);
+        Member member6 = result.get(1);
+        Member memberNull = result.get(2);
+        assertThat(member5.getUsername()).isEqualTo("member5");
+        assertThat(member6.getUsername()).isEqualTo("member6");
+        assertThat(memberNull.getUsername()).isNull();
+    }
+
+
 }
