@@ -2,6 +2,8 @@ package study.querydsl;
 
 import com.querydsl.core.QueryResults;
 import com.querydsl.core.Tuple;
+import com.querydsl.core.types.ExpressionUtils;
+import com.querydsl.core.types.Projections;
 import com.querydsl.core.types.dsl.CaseBuilder;
 import com.querydsl.core.types.dsl.Expressions;
 import com.querydsl.core.types.dsl.NumberExpression;
@@ -15,6 +17,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
+import study.querydsl.dto.MemberDto;
+import study.querydsl.dto.QMemberDto;
 import study.querydsl.entity.Member;
 import study.querydsl.entity.QMember;
 import study.querydsl.entity.QTeam;
@@ -465,4 +469,86 @@ public class QuerydslBasicTest {
         // 결과: member1_10
         // 문자가 아닌 다른 타입은 stringValue() 로  문자로 변환 가능
     }
+
+    // projection (select 대상 지정)
+    @Test
+    public void projectionBasic(){
+        // projection 대상이 하나면 타입 지정이 가능
+        List<String> result = queryFactory
+                .select(member.username)
+                .from(member)
+                .fetch();
+        for (String s : result) {
+            System.out.println("username = " + s);
+        }
+
+        // projection 대상이 두개 이상이면 tuple or DTO 로 조회
+        List<Tuple> resultTuple = queryFactory
+                .select(member.username, member.age) // select 의 대상이 2개 이상
+                .from(member)
+                .fetch();
+        for (Tuple tuple : resultTuple) {
+            String username = tuple.get(member.username);
+            Integer age = tuple.get(member.age);
+            System.out.println("username = " + username + " age = " + age);
+        }
+    }
+
+    // projection - dto 조회
+    @Test
+    public void projectionDto(){
+        // pure JPA 에서 DTO 조회
+        // DTO 의 package 이름을 다 적어줘야 해서 지저분함 + 생성자 방식만 지원
+        List<MemberDto> resultJPA = em.createQuery(
+                "SELECT new study.querydsl.dto.MemberDto(m.username, m.age)" +
+                        " FROM Member m", MemberDto.class
+        ).getResultList();
+
+        // QueryDSL 빈 생성 (Bean population) -> 결과를 DTO 반환할 때 사용하며 다음 3가지 방법을 지원한다.
+        /*
+        * property 접근
+        * field 직접 접근
+        * constructor 사용
+        * 약간의 차이가 있지만 동작 방식은 거의 유사하다.
+         */
+        // property 접근 - DTO 의 setter 를 내부적으로 사용
+        List<MemberDto> resultProp = queryFactory
+                .select(Projections.bean(MemberDto.class, member.username, member.age))
+                .from(member)
+                .fetch();
+        // Field 직접 접근
+        List<MemberDto> resultField = queryFactory
+                .select(Projections.fields(MemberDto.class, member.username, member.age))
+                .from(member)
+                .fetch();
+        // 만약 property 방식이나 field 접근 생성 방식에서 alias 가 다른 경우는? as 함수를 사용하자.
+        // field 혹은 subquery 에 alias 를 적용하고 싶은 경우는 ExpressionsUtils.as(src, alias)
+        // field 에 alias 를 적용하고 싶은 경우는 객체에 as 사용
+        QMember memberSub = QMember.member;
+        List<MemberDto> fetch = queryFactory
+                .select(Projections.fields(MemberDto.class,
+                        member.username.as("username"),
+                        ExpressionUtils.as(
+                                JPAExpressions
+                                        .select(memberSub.age.max())
+                                        .from(memberSub)
+                        , "age"))
+                ).from(member)
+                .fetch();
+        // constructor 사용
+        List<MemberDto> resultConst = queryFactory
+                .select(Projections.constructor(MemberDto.class, member.username, member.age))
+                .from(member)
+                .fetch();
+
+        // projection -> QueryProjection(추천하는 방법인듯) + Distinct
+        // DTO 까지 Q class 로 만들어 버리는 방법 -> MemberDTO 의 생성자에 @QueryProjection 어노테이션을 붙인다.
+        // 이 방법은 컴파일러로 타입을 확인할 수 있기 때문에 가장 안전한 방법이지만
+        // DTO 에 QueryDSL 어노테이션을 유지해야하고 DTO 까지 Q 파일을 생성해야 하는 단점이 있음
+        List<MemberDto> res = queryFactory
+                .select(new QMemberDto(member.username, member.age)).distinct()
+                .from(member)
+                .fetch();
+    }
+
 }
