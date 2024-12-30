@@ -598,4 +598,27 @@ public class QuerydslBasicTest {
     private BooleanExpression usernameEq(String usernameCond) {
         return usernameCond != null ? member.username.eq(usernameCond) : null;
     }
+
+    // modify, delete 벌크 연산 (영속성 컨테스트를 거치지 않고 바로 쏘는 쿼리)
+    @Test
+    public void testBulk() {
+        // 쿼리 한번으로 대량 데이터 수정
+        long count = queryFactory
+                .update(member)
+                .set(member.username, "비회원")
+                .where(member.age.lt(20))
+                .execute();
+
+        // 기존 숫자에 1 더하기
+        long count2 = queryFactory
+                .update(member)
+                .set(member.age, member.age.add(1)) // 곱하기는 multiply(x)
+                .execute();
+
+        // 쿼리 한번으로 대량의 데이터 삭제
+        long count3 = queryFactory
+                .delete(member)
+                .where(member.age.gt(10))
+                .execute();
+    }
 }
