@@ -13,7 +13,7 @@ spring:
       # show_sql: true
       format_sql: true
   profiles:
-    active: local # 프로파일을 설정해서 테스트와 개발 환경을 분리함
+    active: test
 
 logging.level:
   org.hibernate.SQL: debug
